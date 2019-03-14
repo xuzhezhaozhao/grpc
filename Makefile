@@ -5424,6 +5424,7 @@ PUBLIC_HEADERS_CXX += \
     include/grpcpp/generic/generic_stub.h \
     include/grpcpp/grpcpp.h \
     include/grpcpp/health_check_service_interface.h \
+    include/grpcpp/health_check_service_interface_impl.h \
     include/grpcpp/impl/call.h \
     include/grpcpp/impl/channel_argument_option.h \
     include/grpcpp/impl/client_unary_call.h \
@@ -6023,6 +6024,7 @@ PUBLIC_HEADERS_CXX += \
     include/grpcpp/generic/generic_stub.h \
     include/grpcpp/grpcpp.h \
     include/grpcpp/health_check_service_interface.h \
+    include/grpcpp/health_check_service_interface_impl.h \
     include/grpcpp/impl/call.h \
     include/grpcpp/impl/channel_argument_option.h \
     include/grpcpp/impl/client_unary_call.h \
@@ -6935,6 +6937,7 @@ PUBLIC_HEADERS_CXX += \
     include/grpcpp/generic/generic_stub.h \
     include/grpcpp/grpcpp.h \
     include/grpcpp/health_check_service_interface.h \
+    include/grpcpp/health_check_service_interface_impl.h \
     include/grpcpp/impl/call.h \
     include/grpcpp/impl/channel_argument_option.h \
     include/grpcpp/impl/client_unary_call.h \

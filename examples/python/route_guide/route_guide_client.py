@@ -98,22 +98,53 @@ def guide_route_chat(stub):
     for response in responses:
         print("Received message %s at %s" % (response.message,
                                              response.location))
+from multiprocessing import Process, Manager
+
+m = Manager()
+s = m.dict()
+stub = None
+
+def get_stub():
+    global stub
+    import os
+    pid = os.getpid()
+    if pid in s:
+        return stub
+
+    print('init stub for ', pid)
+    channel = grpc.insecure_channel('localhost:50051')
+    stub = route_guide_pb2_grpc.RouteGuideStub(channel)
+    s[pid] = 1
+    return stub
+
+def f():
+    stub = get_stub()
+    print("-------------- GetFeature --------------")
+    guide_get_feature(stub)
+    print("-------------- ListFeatures --------------")
+    guide_list_features(stub)
+    print("-------------- RecordRoute --------------")
+    guide_record_route(stub)
+    print("-------------- RouteChat --------------")
+    guide_route_chat(stub)
 
 
 def run():
     # NOTE(gRPC Python Team): .close() is possible on a channel and should be
     # used in circumstances in which the with statement does not fit the needs
     # of the code.
-    with grpc.insecure_channel('localhost:50051') as channel:
-        stub = route_guide_pb2_grpc.RouteGuideStub(channel)
-        print("-------------- GetFeature --------------")
-        guide_get_feature(stub)
-        print("-------------- ListFeatures --------------")
-        guide_list_features(stub)
-        print("-------------- RecordRoute --------------")
-        guide_record_route(stub)
-        print("-------------- RouteChat --------------")
-        guide_route_chat(stub)
+
+    f()
+    jobs = []
+    for i in range(10):
+        p = Process(target=f, args=())
+        jobs.append(p)
+
+    for p in jobs:
+        p.start()
+    for p in jobs:
+        p.join()
+
 
 
 if __name__ == '__main__':

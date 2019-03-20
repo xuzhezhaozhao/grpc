@@ -76,6 +76,7 @@ class _GenericHandler(grpc.GenericRpcHandler):
         else:
             return None
 
+
 # TODO(rbellevi): Pull out into its own module.
 _TCP_PROXY_BUFFER_SIZE = 1024
 _TCP_PROXY_TIMEOUT = datetime.timedelta(milliseconds=500)
@@ -94,11 +95,15 @@ def _init_proxy_socket(gateway_address, gateway_port):
     return proxy_socket
 
 
+# TODO(rbellevi): Docstrings
 class TcpProxy(object):
+    """Proxies a TCP connection between one client and one server."""
+
     def __init__(self, bind_address, gateway_address, gateway_port):
         self._bind_address = bind_address
         self._gateway_address = gateway_address
         self._gateway_port = gateway_port
+
 
         self._byte_count_lock = threading.RLock()
         self._sent_byte_count = 0
@@ -106,8 +111,15 @@ class TcpProxy(object):
 
         self._stop_event = threading.Event()
 
-        self._listen_socket, self._port = _init_listen_socket(self._bind_address)
-        self._proxy_socket = _init_proxy_socket(self._gateway_address, self._gateway_port)
+        self._listen_socket, self._port = _init_listen_socket(
+            self._bind_address)
+        self._proxy_socket = _init_proxy_socket(self._gateway_address,
+                                                self._gateway_port)
+
+        # The following three attributes are owned by the serving thread.
+        self._northbound_data = ""
+        self._southbound_data = ""
+        self._client_sockets = []
 
         self._thread = threading.Thread(target=self._run_proxy)
         self._thread.start()
@@ -115,42 +127,49 @@ class TcpProxy(object):
     def get_port(self):
         return self._port
 
-    # TODO: Modularize this method
-    def _run_proxy(self):
-        client_sockets = []
-        northbound_data = ""
-        southbound_data = ""
-        while not self._stop_event.is_set():
-            expected_reads = (self._listen_socket, self._proxy_socket) + tuple(client_sockets)
-            expected_writes = expected_reads
-            sockets_to_read, sockets_to_write, _ = select.select(expected_reads, expected_writes, (), _TCP_PROXY_TIMEOUT.total_seconds())
-            for socket_to_read in sockets_to_read:
-                if socket_to_read is self._listen_socket:
-                    client_socket, client_address = socket_to_read.accept()
-                    client_sockets.append(client_socket)
-                elif socket_to_read is self._proxy_socket:
-                    data = socket_to_read.recv(_TCP_PROXY_BUFFER_SIZE)
+    def _handle_reads(self, sockets_to_read):
+        for socket_to_read in sockets_to_read:
+            if socket_to_read is self._listen_socket:
+                client_socket, client_address = socket_to_read.accept()
+                self._client_sockets.append(client_socket)
+            elif socket_to_read is self._proxy_socket:
+                data = socket_to_read.recv(_TCP_PROXY_BUFFER_SIZE)
+                with self._byte_count_lock:
+                    self._received_byte_count += len(data)
+                self._northbound_data += data
+            else:
+                # Otherwise, read from a connected client.
+                data = socket_to_read.recv(_TCP_PROXY_BUFFER_SIZE)
+                if data:
                     with self._byte_count_lock:
-                        self._received_byte_count += len(data)
-                    northbound_data += data
+                        self._sent_byte_count += len(data)
+                    self._southbound_data += data
                 else:
-                    data = socket_to_read.recv(_TCP_PROXY_BUFFER_SIZE)
-                    if data:
-                        with self._byte_count_lock:
-                            self._sent_byte_count += len(data)
-                        southbound_data += data
-                    else:
-                        client_sockets.remove(socket_to_read)
-                for socket_to_write in sockets_to_write:
-                    if socket_to_write is self._proxy_socket:
-                        if southbound_data:
-                            self._proxy_socket.sendall(southbound_data)
-                            southbound_data = ""
-                    else:
-                        if northbound_data:
-                            socket_to_write.sendall(northbound_data)
-                            northbound_data = ""
-        for client_socket in client_sockets:
+                    self._client_sockets.remove(socket_to_read)
+
+    def _handle_writes(self, sockets_to_write):
+        for socket_to_write in sockets_to_write:
+            if socket_to_write is self._proxy_socket:
+                if self._southbound_data:
+                    self._proxy_socket.sendall(self._southbound_data)
+                    self._southbound_data = ""
+            else:
+                # Otherwise, write to a connected client.
+                if self._northbound_data:
+                    socket_to_write.sendall(self._northbound_data)
+                    self._northbound_data = ""
+
+    def _run_proxy(self):
+        while not self._stop_event.is_set():
+            expected_reads = (self._listen_socket,
+                              self._proxy_socket) + tuple(self._client_sockets)
+            expected_writes = expected_reads
+            sockets_to_read, sockets_to_write, _ = select.select(
+                expected_reads, expected_writes, (),
+                _TCP_PROXY_TIMEOUT.total_seconds())
+            self._handle_reads(sockets_to_read)
+            self._handle_writes(sockets_to_write)
+        for client_socket in self._client_sockets:
             client_socket.close()
 
     def stop(self):
@@ -196,13 +215,12 @@ class CompressionTest(unittest.TestCase):
         server.start()
         proxy = TcpProxy('localhost', 'localhost', server_port)
         proxy_port = proxy.get_port()
-        client_channel = grpc.insecure_channel('localhost:{}'.format(proxy_port))
+        client_channel = grpc.insecure_channel(
+            'localhost:{}'.format(proxy_port))
         multi_callable = client_channel.unary_unary(_UNARY_UNARY)
         response = multi_callable(request)
         self.assertEqual(request, response)
         bytes_sent, bytes_received = proxy.get_byte_count()
-        print("Bytes sent: {}".format(bytes_sent))
-        print("Bytes received: {}".format(bytes_received))
         self.assertGreater(bytes_sent, 0)
         self.assertGreater(bytes_received, 0)
         server.stop(None)

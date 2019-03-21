@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import unittest
 
+import contextlib
 import logging
 import grpc
 from grpc import _grpcio_metadata
@@ -74,6 +75,36 @@ class _GenericHandler(grpc.GenericRpcHandler):
             return None
 
 
+@contextlib.contextmanager
+def _instrumented_client_server_pair(channel_kwargs):
+    server = test_common.test_server()
+    server.add_generic_rpc_handlers((_GenericHandler(),))
+    server_port = server.add_insecure_port('[::]:0')
+    server.start()
+    with _tcp_proxy.TcpProxy('localhost', 'localhost', server_port) as proxy:
+        proxy_port = proxy.get_port()
+        with grpc.insecure_channel(
+                'localhost:{}'.format(proxy_port), **channel_kwargs) as client_channel:
+            try:
+                yield client_channel, proxy, server,
+            finally:
+                server.stop(None)
+
+
+def _get_byte_counts(channel_kwargs, message):
+    with _instrumented_client_server_pair(channel_kwargs) as pipeline:
+        client_channel, proxy, server = pipeline
+        multi_callable = client_channel.unary_unary(_UNARY_UNARY)
+        response = multi_callable(message)
+        if response != message:
+            raise RuntimeError("Request '{}' != Response '{}'".format(request, response))
+        return proxy.get_byte_count()
+
+
+def _get_byte_differences(first_channel_kwargs, second_channel_kwargs, message):
+    first_bytes_sent, first_bytes_received = _get_byte_counts(first_channel_kwargs, message)
+    second_bytes_sent, second_bytes_received = _get_byte_counts(second_channel_kwargs, message)
+    return second_bytes_sent - first_bytes_sent, second_bytes_received - first_bytes_received,
 
 
 class CompressionTest(unittest.TestCase):
@@ -91,21 +122,15 @@ class CompressionTest(unittest.TestCase):
 
     def testUnary(self):
         request = b'\x00' * 100
-        server = test_common.test_server()
-        server.add_generic_rpc_handlers((_GenericHandler(),))
-        server_port = server.add_insecure_port('[::]:0')
-        server.start()
-        with _tcp_proxy.TcpProxy('localhost', 'localhost', server_port) as proxy:
-            proxy_port = proxy.get_port()
-            with grpc.insecure_channel(
-                    'localhost:{}'.format(proxy_port)) as client_channel:
-                multi_callable = client_channel.unary_unary(_UNARY_UNARY)
-                response = multi_callable(request)
-                self.assertEqual(request, response)
-                bytes_sent, bytes_received = proxy.get_byte_count()
-                self.assertGreater(bytes_sent, 0)
-                self.assertGreater(bytes_received, 0)
-        server.stop(None)
+        uncompressed_channel_kwargs = {}
+        compressed_channel_kwargs = {
+            'options': [('grpc.default_compression_algorithm', 1)],
+        }
+        bytes_sent_difference, bytes_received_difference = _get_byte_differences(uncompressed_channel_kwargs, compressed_channel_kwargs, request)
+        print("Bytes sent difference: {}".format(bytes_sent_difference))
+        print("Bytes received difference: {}".format(bytes_received_difference))
+        self.assertLess(bytes_sent_difference, 0)
+        self.assertFalse(bytes_received_difference)
 
     # def testUnary(self):
     #     request = b'\x00' * 100

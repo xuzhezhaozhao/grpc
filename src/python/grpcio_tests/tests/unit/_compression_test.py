@@ -83,10 +83,10 @@ def _instrumented_client_server_pair(channel_kwargs):
     server.start()
     with _tcp_proxy.TcpProxy('localhost', 'localhost', server_port) as proxy:
         proxy_port = proxy.get_port()
-        with grpc.insecure_channel(
-                'localhost:{}'.format(proxy_port), **channel_kwargs) as client_channel:
+        with grpc.insecure_channel('localhost:{}'.format(proxy_port),
+                                   **channel_kwargs) as client_channel:
             try:
-                yield client_channel, proxy, server,
+                yield client_channel, proxy, server
             finally:
                 server.stop(None)
 
@@ -97,14 +97,17 @@ def _get_byte_counts(channel_kwargs, message):
         multi_callable = client_channel.unary_unary(_UNARY_UNARY)
         response = multi_callable(message)
         if response != message:
-            raise RuntimeError("Request '{}' != Response '{}'".format(request, response))
+            raise RuntimeError("Request '{}' != Response '{}'".format(
+                message, response))
         return proxy.get_byte_count()
 
 
 def _get_byte_differences(first_channel_kwargs, second_channel_kwargs, message):
-    first_bytes_sent, first_bytes_received = _get_byte_counts(first_channel_kwargs, message)
-    second_bytes_sent, second_bytes_received = _get_byte_counts(second_channel_kwargs, message)
-    return second_bytes_sent - first_bytes_sent, second_bytes_received - first_bytes_received,
+    first_bytes_sent, first_bytes_received = _get_byte_counts(
+        first_channel_kwargs, message)
+    second_bytes_sent, second_bytes_received = _get_byte_counts(
+        second_channel_kwargs, message)
+    return second_bytes_sent - first_bytes_sent, second_bytes_received - first_bytes_received
 
 
 class CompressionTest(unittest.TestCase):
@@ -121,12 +124,15 @@ class CompressionTest(unittest.TestCase):
         # self._server.stop(None)
 
     def testUnary(self):
+        # TODO(rbellevi): server->client is currently compressed in both cases.
+        # Differentiate.
         request = b'\x00' * 100
         uncompressed_channel_kwargs = {}
         compressed_channel_kwargs = {
             'options': [('grpc.default_compression_algorithm', 1)],
         }
-        bytes_sent_difference, bytes_received_difference = _get_byte_differences(uncompressed_channel_kwargs, compressed_channel_kwargs, request)
+        bytes_sent_difference, bytes_received_difference = _get_byte_differences(
+            uncompressed_channel_kwargs, compressed_channel_kwargs, request)
         print("Bytes sent difference: {}".format(bytes_sent_difference))
         print("Bytes received difference: {}".format(bytes_received_difference))
         self.assertLess(bytes_sent_difference, 0)

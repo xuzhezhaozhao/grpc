@@ -115,7 +115,7 @@ class TcpProxy(object):
 
     def get_byte_count(self):
         with self._byte_count_lock:
-            return self._sent_byte_count, self._received_byte_count,
+            return self._sent_byte_count, self._received_byte_count
 
     def reset_byte_count(self):
         with self._byte_count_lock:

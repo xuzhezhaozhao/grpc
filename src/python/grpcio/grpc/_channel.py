@@ -994,13 +994,15 @@ def _options(options):
 class Channel(grpc.Channel):
     """A cygrpc.Channel-backed implementation of grpc.Channel."""
 
-    def __init__(self, target, options, credentials):
+    def __init__(self, target, options, credentials, compression):
         """Constructor.
 
         Args:
           target: The target to which to connect.
           options: Configuration options for the channel.
           credentials: A cygrpc.ChannelCredentials or None.
+          compression: An optional value indicating the compression method to be
+            used over the lifetime of the channel.
         """
         self._channel = cygrpc.Channel(
             _common.encode(target), _options(options), credentials)

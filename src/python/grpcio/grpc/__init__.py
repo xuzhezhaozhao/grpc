@@ -1682,7 +1682,7 @@ def channel_ready_future(channel):
     return _utilities.channel_ready_future(channel)
 
 
-def insecure_channel(target, options=None):
+def insecure_channel(target, options=None, compression=None):
     """Creates an insecure Channel to a server.
 
     The returned Channel is thread-safe.
@@ -1691,15 +1691,17 @@ def insecure_channel(target, options=None):
       target: The server address
       options: An optional list of key-value pairs (channel args
         in gRPC Core runtime) to configure the channel.
+      compression: An optional value indicating the compression method to be
+        used over the lifetime of the channel.
 
     Returns:
       A Channel.
     """
     from grpc import _channel  # pylint: disable=cyclic-import
-    return _channel.Channel(target, () if options is None else options, None)
+    return _channel.Channel(target, () if options is None else options, None, compression)
 
 
-def secure_channel(target, credentials, options=None):
+def secure_channel(target, credentials, options=None, compression=None):
     """Creates a secure Channel to a server.
 
     The returned Channel is thread-safe.
@@ -1709,13 +1711,15 @@ def secure_channel(target, credentials, options=None):
       credentials: A ChannelCredentials instance.
       options: An optional list of key-value pairs (channel args
         in gRPC Core runtime) to configure the channel.
+      compression: An optional value indicating the compression method to be
+        used over the lifetime of the channel.
 
     Returns:
       A Channel.
     """
     from grpc import _channel  # pylint: disable=cyclic-import
     return _channel.Channel(target, () if options is None else options,
-                            credentials._credentials)
+                            credentials._credentials, compression)
 
 
 def intercept_channel(channel, *interceptors):

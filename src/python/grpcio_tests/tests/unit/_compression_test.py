@@ -32,13 +32,22 @@ _UNARY_UNARY = '/test/UnaryUnary'
 _STREAM_STREAM = '/test/StreamStream'
 
 
-def handle_unary(request, servicer_context):
+def handle_unary_uncompressed(request, servicer_context):
+    return request
+
+
+def handle_unary_compressed(request, servicer_context):
     servicer_context.send_initial_metadata([('grpc-internal-encoding-request',
                                              'gzip')])
     return request
 
 
-def handle_stream(request_iterator, servicer_context):
+def handle_stream_uncompressed(request_iterator, servicer_context):
+    for request in request_iterator:
+        yield request
+
+
+def handle_stream_compressed(request_iterator, servicer_context):
     # TODO(issue:#6891) We should be able to remove this loop,
     # and replace with return; yield
     servicer_context.send_initial_metadata([('grpc-internal-encoding-request',
@@ -49,7 +58,7 @@ def handle_stream(request_iterator, servicer_context):
 
 class _MethodHandler(grpc.RpcMethodHandler):
 
-    def __init__(self, request_streaming, response_streaming):
+    def __init__(self, request_streaming, response_streaming, compressed):
         self.request_streaming = request_streaming
         self.response_streaming = response_streaming
         self.request_deserializer = None
@@ -59,26 +68,35 @@ class _MethodHandler(grpc.RpcMethodHandler):
         self.stream_unary = None
         self.stream_stream = None
         if self.request_streaming and self.response_streaming:
-            self.stream_stream = handle_stream
+            if compressed:
+                self.stream_stream = handle_stream_compressed
+            else:
+                self.stream_stream = handle_stream_uncompressed
         elif not self.request_streaming and not self.response_streaming:
-            self.unary_unary = handle_unary
+            if compressed:
+                self.unary_unary = handle_unary_compressed
+            else:
+                self.unary_unary = handle_unary_uncompressed
 
 
 class _GenericHandler(grpc.GenericRpcHandler):
 
+    def __init__(self, compressed=True):
+        self._compressed = compressed
+
     def service(self, handler_call_details):
         if handler_call_details.method == _UNARY_UNARY:
-            return _MethodHandler(False, False)
+            return _MethodHandler(False, False, self._compressed)
         elif handler_call_details.method == _STREAM_STREAM:
-            return _MethodHandler(True, True)
+            return _MethodHandler(True, True, self._compressed)
         else:
             return None
 
 
 @contextlib.contextmanager
-def _instrumented_client_server_pair(channel_kwargs):
+def _instrumented_client_server_pair(channel_kwargs, server_handler):
     server = test_common.test_server()
-    server.add_generic_rpc_handlers((_GenericHandler(),))
+    server.add_generic_rpc_handlers((server_handler,))
     server_port = server.add_insecure_port('[::]:0')
     server.start()
     with _tcp_proxy.TcpProxy('localhost', 'localhost', server_port) as proxy:
@@ -91,8 +109,9 @@ def _instrumented_client_server_pair(channel_kwargs):
                 server.stop(None)
 
 
-def _get_byte_counts(channel_kwargs, message):
-    with _instrumented_client_server_pair(channel_kwargs) as pipeline:
+def _get_byte_counts(channel_kwargs, server_handler, message):
+    with _instrumented_client_server_pair(channel_kwargs,
+                                          server_handler) as pipeline:
         client_channel, proxy, server = pipeline
         multi_callable = client_channel.unary_unary(_UNARY_UNARY)
         response = multi_callable(message)
@@ -102,11 +121,13 @@ def _get_byte_counts(channel_kwargs, message):
         return proxy.get_byte_count()
 
 
-def _get_byte_differences(first_channel_kwargs, second_channel_kwargs, message):
+def _get_byte_differences(first_channel_kwargs, first_server_handler,
+                          second_channel_kwargs, second_server_handler,
+                          message):
     first_bytes_sent, first_bytes_received = _get_byte_counts(
-        first_channel_kwargs, message)
+        first_channel_kwargs, first_server_handler, message)
     second_bytes_sent, second_bytes_received = _get_byte_counts(
-        second_channel_kwargs, message)
+        second_channel_kwargs, second_server_handler, message)
     return second_bytes_sent - first_bytes_sent, second_bytes_received - first_bytes_received
 
 
@@ -124,19 +145,18 @@ class CompressionTest(unittest.TestCase):
         # self._server.stop(None)
 
     def testUnary(self):
-        # TODO(rbellevi): server->client is currently compressed in both cases.
-        # Differentiate.
         request = b'\x00' * 100
         uncompressed_channel_kwargs = {}
         compressed_channel_kwargs = {
             'options': [('grpc.default_compression_algorithm', 1)],
         }
         bytes_sent_difference, bytes_received_difference = _get_byte_differences(
-            uncompressed_channel_kwargs, compressed_channel_kwargs, request)
+            uncompressed_channel_kwargs, _GenericHandler(False),
+            compressed_channel_kwargs, _GenericHandler(True), request)
         print("Bytes sent difference: {}".format(bytes_sent_difference))
         print("Bytes received difference: {}".format(bytes_received_difference))
         self.assertLess(bytes_sent_difference, 0)
-        self.assertFalse(bytes_received_difference)
+        self.assertLess(bytes_received_difference, 0)
 
     # def testUnary(self):
     #     request = b'\x00' * 100

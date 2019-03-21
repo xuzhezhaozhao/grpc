@@ -983,14 +983,12 @@ def _unsubscribe(state, callback):
 
 
 def _augment_options(base_options, compression):
-    # TODO(rbellevi): Factor key out to a constant.
-    compression_option = (('grpc.default_compression_algorithm', compression),) if compression else ()
-    return tuple(base_options) + compression_option + (
-        (
-            cygrpc.ChannelArgKey.primary_user_agent_string,
-            _USER_AGENT,
-        ),
-    )
+    compression_option = ((cygrpc.GRPC_COMPRESSION_CHANNEL_DEFAULT_ALGORITHM_KEY,
+                           compression),) if compression else ()
+    return tuple(base_options) + compression_option + ((
+        cygrpc.ChannelArgKey.primary_user_agent_string,
+        _USER_AGENT,
+    ),)
 
 
 class Channel(grpc.Channel):
@@ -1007,7 +1005,8 @@ class Channel(grpc.Channel):
             used over the lifetime of the channel.
         """
         self._channel = cygrpc.Channel(
-            _common.encode(target), _augment_options(options, compression), credentials)
+            _common.encode(target), _augment_options(options, compression),
+            credentials)
         self._call_state = _ChannelCallState(self._channel)
         self._connectivity_state = _ChannelConnectivityState(self._channel)
         cygrpc.fork_register_channel(self)

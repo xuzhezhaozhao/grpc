@@ -148,7 +148,7 @@ class CompressionTest(unittest.TestCase):
         request = b'\x00' * 100
         uncompressed_channel_kwargs = {}
         compressed_channel_kwargs = {
-            'compression': 1,
+            'compression': grpc.CompressionAlgorithm.deflate,
         }
         bytes_sent_difference, bytes_received_difference = _get_byte_differences(
             uncompressed_channel_kwargs, _GenericHandler(False),

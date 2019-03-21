@@ -22,6 +22,8 @@ import six
 
 from grpc._cython import cygrpc as _cygrpc
 
+from grpc._cython.cygrpc import CompressionAlgorithm
+
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 try:

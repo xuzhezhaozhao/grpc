@@ -32,32 +32,43 @@ _UNARY_UNARY = '/test/UnaryUnary'
 _STREAM_STREAM = '/test/StreamStream'
 
 
-def handle_unary_uncompressed(request, servicer_context):
-    return request
+def make_handle_unary(pre_response_callback):
+
+    def _handle_unary(request, servicer_context):
+        if pre_response_callback:
+            pre_response_callback(request, servicer_context)
+        return request
+
+    return _handle_unary
 
 
-# TODO(rbellevi): Add test where we also set initial_metadata.
-def handle_unary_compressed(request, servicer_context):
+def make_handle_stream(pre_response_callback):
+
+    def _handle_stream(request_iterator, servicer_context):
+        if pre_response_callback:
+            pre_response_callback(request_iterator, servicer_context)
+        # TODO(issue:#6891) We should be able to remove this loop,
+        # and replace with return; yield
+        for request in request_iterator:
+            yield request
+
+    return _handle_stream
+
+
+def set_call_compression(request_or_iterator, servicer_context):
+    del request_or_iterator
     servicer_context.set_compression(grpc.CompressionAlgorithm.gzip)
-    return request
 
 
-def handle_stream_uncompressed(request_iterator, servicer_context):
-    for request in request_iterator:
-        yield request
-
-
-def handle_stream_compressed(request_iterator, servicer_context):
-    # TODO(issue:#6891) We should be able to remove this loop,
-    # and replace with return; yield
-    servicer_context.set_compression(grpc.CompressionAlgorithm.gzip)
-    for request in request_iterator:
-        yield request
+def disable_next_compression(request_or_iterator, servicer_context):
+    del request_or_iterator
+    servicer_context.disable_next_message_compression()
 
 
 class _MethodHandler(grpc.RpcMethodHandler):
 
-    def __init__(self, request_streaming, response_streaming, compressed):
+    def __init__(self, request_streaming, response_streaming,
+                 pre_response_callback):
         self.request_streaming = request_streaming
         self.response_streaming = response_streaming
         self.request_deserializer = None
@@ -66,28 +77,23 @@ class _MethodHandler(grpc.RpcMethodHandler):
         self.unary_stream = None
         self.stream_unary = None
         self.stream_stream = None
+
         if self.request_streaming and self.response_streaming:
-            if compressed:
-                self.stream_stream = handle_stream_compressed
-            else:
-                self.stream_stream = handle_stream_uncompressed
+            self.stream_stream = make_handle_stream(pre_response_callback)
         elif not self.request_streaming and not self.response_streaming:
-            if compressed:
-                self.unary_unary = handle_unary_compressed
-            else:
-                self.unary_unary = handle_unary_uncompressed
+            self.unary_unary = make_handle_unary(pre_response_callback)
 
 
 class _GenericHandler(grpc.GenericRpcHandler):
 
-    def __init__(self, compressed=True):
-        self._compressed = compressed
+    def __init__(self, pre_response_callback):
+        self._pre_response_callback = pre_response_callback
 
     def service(self, handler_call_details):
         if handler_call_details.method == _UNARY_UNARY:
-            return _MethodHandler(False, False, self._compressed)
+            return _MethodHandler(False, False, self._pre_response_callback)
         elif handler_call_details.method == _STREAM_STREAM:
-            return _MethodHandler(True, True, self._compressed)
+            return _MethodHandler(True, True, self._pre_response_callback)
         else:
             return None
 
@@ -131,12 +137,15 @@ def _get_byte_differences(first_channel_kwargs, first_server_handler,
     return second_bytes_sent - first_bytes_sent, second_bytes_received - first_bytes_received
 
 
+_REQUEST = b'\x00' * 100
+
+
 class CompressionTest(unittest.TestCase):
 
     def setUp(self):
         pass
         # self._server = test_common.test_server()
-        # self._server.add_generic_rpc_handlers((_GenericHandler(),))
+        # self._server.add_generic_rpc_handlers((_GenericHandler(None),))
         # self._port = self._server.add_insecure_port('[::]:0')
         # self._server.start()
 
@@ -145,18 +154,40 @@ class CompressionTest(unittest.TestCase):
         # self._server.stop(None)
 
     def testUnary(self):
-        request = b'\x00' * 100
         uncompressed_channel_kwargs = {}
         compressed_channel_kwargs = {
             'compression': grpc.CompressionAlgorithm.deflate,
         }
         bytes_sent_difference, bytes_received_difference = _get_byte_differences(
-            uncompressed_channel_kwargs, _GenericHandler(False),
-            compressed_channel_kwargs, _GenericHandler(True), request)
+            uncompressed_channel_kwargs,
+            _GenericHandler(None), compressed_channel_kwargs,
+            _GenericHandler(set_call_compression), _REQUEST)
         print("Bytes sent difference: {}".format(bytes_sent_difference))
         print("Bytes received difference: {}".format(bytes_received_difference))
         self.assertLess(bytes_sent_difference, 0)
         self.assertLess(bytes_received_difference, 0)
+
+    # TODO(rbellevi): Implement.
+    def testStreaming(self):
+        pass
+
+    def testDisableNextCompressionUnary(self):
+        uncompressed_channel_kwargs = {}
+        compressed_channel_kwargs = {
+            'compression': grpc.CompressionAlgorithm.deflate,
+        }
+        bytes_sent_difference, bytes_received_difference = _get_byte_differences(
+            uncompressed_channel_kwargs,
+            _GenericHandler(None), compressed_channel_kwargs,
+            _GenericHandler(disable_next_compression), _REQUEST)
+        print("Bytes sent difference: {}".format(bytes_sent_difference))
+        print("Bytes received difference: {}".format(bytes_received_difference))
+        self.assertLess(bytes_sent_difference, 0)
+        self.assertEqual(bytes_received_difference, 0)
+
+    # TODO(rbellevi): Implement.
+    def testDisableNextCompressionStreaming(self):
+        pass
 
     # def testUnary(self):
     #     request = b'\x00' * 100

@@ -493,6 +493,13 @@ def _serialize_response(rpc_event, state, response, response_serializer):
         return serialized_response
 
 
+def _state_to_send_message_op_flags(state):
+    if state.disable_next_compression:
+        return cygrpc.WriteFlag.no_compress
+    else:
+        return _EMPTY_FLAGS
+
+
 def _send_response(rpc_event, state, serialized_response):
     with state.condition:
         if not _is_rpc_state_active(state):
@@ -501,14 +508,16 @@ def _send_response(rpc_event, state, serialized_response):
             if state.initial_metadata_allowed:
                 operations = (
                     cygrpc.SendInitialMetadataOperation(None, _EMPTY_FLAGS),
-                    cygrpc.SendMessageOperation(serialized_response,
-                                                _EMPTY_FLAGS),
+                    cygrpc.SendMessageOperation(
+                        serialized_response,
+                        _state_to_send_message_op_flags(state)),
                 )
                 state.initial_metadata_allowed = False
                 token = _SEND_INITIAL_METADATA_AND_SEND_MESSAGE_TOKEN
             else:
                 operations = (cygrpc.SendMessageOperation(
-                    serialized_response, _EMPTY_FLAGS),)
+                    serialized_response,
+                    _state_to_send_message_op_flags(state)),)
                 token = _SEND_MESSAGE_TOKEN
             rpc_event.call.start_server_batch(operations,
                                               _send_message(state, token))
@@ -533,8 +542,9 @@ def _status(rpc_event, state, serialized_response):
                     cygrpc.SendInitialMetadataOperation(None, _EMPTY_FLAGS))
             if serialized_response is not None:
                 operations.append(
-                    cygrpc.SendMessageOperation(serialized_response,
-                                                _EMPTY_FLAGS))
+                    cygrpc.SendMessageOperation(
+                        serialized_response,
+                        _state_to_send_message_op_flags(state)))
             rpc_event.call.start_server_batch(
                 operations,
                 _send_status_from_server(state, _SEND_STATUS_FROM_SERVER_TOKEN))

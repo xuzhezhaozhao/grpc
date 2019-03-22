@@ -36,9 +36,9 @@ def handle_unary_uncompressed(request, servicer_context):
     return request
 
 
+# TODO(rbellevi): Add test where we also set initial_metadata.
 def handle_unary_compressed(request, servicer_context):
-    servicer_context.send_initial_metadata([('grpc-internal-encoding-request',
-                                             'gzip')])
+    servicer_context.set_compression(grpc.CompressionAlgorithm.gzip)
     return request
 
 
@@ -50,8 +50,7 @@ def handle_stream_uncompressed(request_iterator, servicer_context):
 def handle_stream_compressed(request_iterator, servicer_context):
     # TODO(issue:#6891) We should be able to remove this loop,
     # and replace with return; yield
-    servicer_context.send_initial_metadata([('grpc-internal-encoding-request',
-                                             'gzip')])
+    servicer_context.set_compression(grpc.CompressionAlgorithm.gzip)
     for request in request_iterator:
         yield request
 
@@ -95,13 +94,14 @@ class _GenericHandler(grpc.GenericRpcHandler):
 
 @contextlib.contextmanager
 def _instrumented_client_server_pair(channel_kwargs, server_handler):
+    host = 'localhost'
     server = test_common.test_server()
     server.add_generic_rpc_handlers((server_handler,))
     server_port = server.add_insecure_port('[::]:0')
     server.start()
-    with _tcp_proxy.TcpProxy('localhost', 'localhost', server_port) as proxy:
+    with _tcp_proxy.TcpProxy(host, host, server_port) as proxy:
         proxy_port = proxy.get_port()
-        with grpc.insecure_channel('localhost:{}'.format(proxy_port),
+        with grpc.insecure_channel('{}:{}'.format(host, proxy_port),
                                    **channel_kwargs) as client_channel:
             try:
                 yield client_channel, proxy, server

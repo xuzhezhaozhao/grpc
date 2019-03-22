@@ -94,6 +94,7 @@ class _RPCState(object):
         self.request = None
         self.client = _OPEN
         self.initial_metadata_allowed = True
+        self.compression_algorithm = None
         self.disable_next_compression = False
         self.trailing_metadata = None
         self.code = None
@@ -210,6 +211,24 @@ def _send_message(state, token):
     return send_message
 
 
+def _compression_algorithm_to_metadata_value(compression):
+    if compression == grpc.CompressionAlgorithm.none:
+        return 'identity'
+    elif compression == grpc.CompressionAlgorithm.deflate:
+        return 'deflate'
+    elif compression == grpc.CompressionAlgorithm.gzip:
+        return 'gzip'
+    else:
+        raise ValueError(
+            'Unknown compression algorithm "{}".'.format(compression))
+
+
+# TODO(rbellevi): Pull metadata key in from C layer.
+def compression_algorithm_to_metadata(compression):
+    return ('grpc-internal-encoding-request',
+            _compression_algorithm_to_metadata_value(compression))
+
+
 class _Context(grpc.ServicerContext):
 
     def __init__(self, rpc_event, state, request_deserializer):
@@ -259,14 +278,24 @@ class _Context(grpc.ServicerContext):
                 cygrpc.auth_context(self._rpc_event.call))
         }
 
+    def set_compression(self, compression):
+        with self._state.condition:
+            self._state.compression_algorithm = compression
+
     def send_initial_metadata(self, initial_metadata):
         with self._state.condition:
             if self._state.client is _CANCELLED:
                 _raise_rpc_error(self._state)
             else:
                 if self._state.initial_metadata_allowed:
+                    compression_metadata = (
+                    ) if not self._state.compression_algorithm else (
+                        compression_algorithm_to_metadata(
+                            self._state.compression_algorithm),)
+                    augmented_metadata = tuple(
+                        initial_metadata) + compression_metadata
                     operation = cygrpc.SendInitialMetadataOperation(
-                        initial_metadata, _EMPTY_FLAGS)
+                        augmented_metadata, _EMPTY_FLAGS)
                     self._rpc_event.call.start_server_batch(
                         (operation,), _send_initial_metadata(self._state))
                     self._state.initial_metadata_allowed = False
@@ -390,6 +419,20 @@ def _unary_request(rpc_event, state, request_deserializer):
     return unary_request
 
 
+# TODO(rbellevi): Take disable_next_compression into account.
+def _maybe_request_compression(state, rpc_event):
+    with state.condition:
+        if state.initial_metadata_allowed and state.compression_algorithm:
+            compression_metadata = (compression_algorithm_to_metadata(
+                state.compression_algorithm),)
+            operation = cygrpc.SendInitialMetadataOperation(
+                compression_metadata, _EMPTY_FLAGS)
+            rpc_event.call.start_server_batch((operation,),
+                                              _send_initial_metadata(state))
+            state.initial_metadata_allowed = False
+            state.due.add(_SEND_INITIAL_METADATA_TOKEN)
+
+
 def _call_behavior(rpc_event,
                    state,
                    behavior,
@@ -400,10 +443,14 @@ def _call_behavior(rpc_event,
     with _create_servicer_context(rpc_event, state,
                                   request_deserializer) as context:
         try:
+            response_or_iterator = None
             if send_response_callback is not None:
-                return behavior(argument, context, send_response_callback), True
+                response_or_iterator = behavior(argument, context,
+                                                send_response_callback)
             else:
-                return behavior(argument, context), True
+                response_or_iterator = behavior(argument, context)
+            _maybe_request_compression(state, rpc_event)
+            return response_or_iterator, True
         except Exception as exception:  # pylint: disable=broad-except
             with state.condition:
                 if state.aborted:

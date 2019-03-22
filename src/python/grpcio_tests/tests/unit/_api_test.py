@@ -38,6 +38,7 @@ class AllTest(unittest.TestCase):
             'Call',
             'ChannelCredentials',
             'CallCredentials',
+            'CompressionAlgorithm',
             'AuthMetadataContext',
             'AuthMetadataPluginCallback',
             'AuthMetadataPlugin',

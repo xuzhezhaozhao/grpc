@@ -1813,6 +1813,7 @@ __all__ = (
     'AuthMetadataPluginCallback',
     'AuthMetadataPlugin',
     'ClientCallDetails',
+    'CompressionAlgorithm',
     'ServerCertificateConfiguration',
     'ServerCredentials',
     'UnaryUnaryMultiCallable',

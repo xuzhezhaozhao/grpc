@@ -22,6 +22,7 @@ import unittest
 import contextlib
 import logging
 import grpc
+import grpc.compression
 from grpc import _grpcio_metadata
 
 from tests.unit import test_common
@@ -57,7 +58,7 @@ def make_handle_stream(pre_response_callback):
 
 def set_call_compression(request_or_iterator, servicer_context):
     del request_or_iterator
-    servicer_context.set_compression(grpc.CompressionAlgorithm.gzip)
+    servicer_context.set_compression(grpc.compression.Gzip)
 
 
 def disable_next_compression(request_or_iterator, servicer_context):
@@ -174,7 +175,7 @@ class CompressionTest(unittest.TestCase):
     def testChannelCompressedUnary(self):
         uncompressed_channel_kwargs = {}
         compressed_channel_kwargs = {
-            'compression': grpc.CompressionAlgorithm.deflate,
+            'compression': grpc.compression.Deflate,
         }
         bytes_sent_difference, bytes_received_difference = _get_byte_differences(
             uncompressed_channel_kwargs, {},
@@ -192,7 +193,7 @@ class CompressionTest(unittest.TestCase):
     def testCallCompressedUnary(self):
         uncompressed_channel_kwargs = {}
         compressed_multicallable_kwargs = {
-            'compression': grpc.CompressionAlgorithm.deflate,
+            'compression': grpc.compression.Deflate,
         }
         bytes_sent_difference, bytes_received_difference = _get_byte_differences(
             uncompressed_channel_kwargs, {}, _GenericHandler(None),
@@ -209,7 +210,7 @@ class CompressionTest(unittest.TestCase):
     def testDisableNextCompressionUnary(self):
         uncompressed_channel_kwargs = {}
         compressed_channel_kwargs = {
-            'compression': grpc.CompressionAlgorithm.deflate,
+            'compression': grpc.compression.Deflate,
         }
         bytes_sent_difference, bytes_received_difference = _get_byte_differences(
             uncompressed_channel_kwargs, {}, _GenericHandler(None),

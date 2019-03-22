@@ -211,23 +211,6 @@ def _send_message(state, token):
     return send_message
 
 
-def _compression_algorithm_to_metadata_value(compression):
-    if compression == grpc.CompressionAlgorithm.none:
-        return 'identity'
-    elif compression == grpc.CompressionAlgorithm.deflate:
-        return 'deflate'
-    elif compression == grpc.CompressionAlgorithm.gzip:
-        return 'gzip'
-    else:
-        raise ValueError(
-            'Unknown compression algorithm "{}".'.format(compression))
-
-
-def compression_algorithm_to_metadata(compression):
-    return (cygrpc.GRPC_COMPRESSION_REQUEST_ALGORITHM_MD_KEY,
-            _compression_algorithm_to_metadata_value(compression))
-
-
 class _Context(grpc.ServicerContext):
 
     def __init__(self, rpc_event, state, request_deserializer):
@@ -290,7 +273,7 @@ class _Context(grpc.ServicerContext):
                 if self._state.initial_metadata_allowed:
                     compression_metadata = (
                     ) if not self._state.compression_algorithm else (
-                        compression_algorithm_to_metadata(
+                        grpc.compression._compression_algorithm_to_metadata(
                             self._state.compression_algorithm),)
                     augmented_metadata = tuple(
                         initial_metadata) + compression_metadata
@@ -423,8 +406,9 @@ def _unary_request(rpc_event, state, request_deserializer):
 def _maybe_request_compression(state, rpc_event):
     with state.condition:
         if state.initial_metadata_allowed and state.compression_algorithm:
-            compression_metadata = (compression_algorithm_to_metadata(
-                state.compression_algorithm),)
+            compression_metadata = (
+                grpc.compression._compression_algorithm_to_metadata(
+                    state.compression_algorithm),)
             operation = cygrpc.SendInitialMetadataOperation(
                 compression_metadata, _EMPTY_FLAGS)
             rpc_event.call.start_server_batch((operation,),

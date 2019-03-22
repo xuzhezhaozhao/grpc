@@ -500,34 +500,6 @@ def _determine_deadline(user_deadline):
         return min(parent_deadline, user_deadline)
 
 
-# TODO(rbellevi): Reconcile duplication with server.py.
-def _compression_algorithm_to_metadata_value(compression):
-    if compression == grpc.CompressionAlgorithm.none:
-        return 'identity'
-    elif compression == grpc.CompressionAlgorithm.deflate:
-        return 'deflate'
-    elif compression == grpc.CompressionAlgorithm.gzip:
-        return 'gzip'
-    else:
-        raise ValueError(
-            'Unknown compression algorithm "{}".'.format(compression))
-
-
-# TODO(rbellevi): Reconcile duplication with server.py.
-def _compression_algorithm_to_metadata(compression):
-    return (cygrpc.GRPC_COMPRESSION_REQUEST_ALGORITHM_MD_KEY,
-            _compression_algorithm_to_metadata_value(compression))
-
-
-def _augment_metadata(metadata, compression):
-    if not metadata and not compression:
-        return None
-    base_metadata = metadata if metadata else ()
-    compression_metadata = (
-        _compression_algorithm_to_metadata(compression),) if compression else ()
-    return base_metadata + compression_metadata
-
-
 class _UnaryUnaryMultiCallable(grpc.UnaryUnaryMultiCallable):
 
     # pylint: disable=too-many-arguments
@@ -545,7 +517,8 @@ class _UnaryUnaryMultiCallable(grpc.UnaryUnaryMultiCallable):
             request, timeout, self._request_serializer)
         initial_metadata_flags = _InitialMetadataFlags().with_wait_for_ready(
             wait_for_ready)
-        augmented_metadata = _augment_metadata(metadata, compression)
+        augmented_metadata = grpc.compression._augment_metadata(
+            metadata, compression)
         if serialized_request is None:
             return None, None, None, rendezvous
         else:

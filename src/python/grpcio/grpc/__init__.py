@@ -22,8 +22,6 @@ import six
 
 from grpc._cython import cygrpc as _cygrpc
 
-from grpc._cython.cygrpc import CompressionAlgorithm
-
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 try:
@@ -1852,6 +1850,7 @@ __all__ = (
     'access_token_call_credentials',
     'composite_call_credentials',
     'composite_channel_credentials',
+    'compression',
     'ssl_server_credentials',
     'ssl_server_certificate_configuration',
     'dynamic_ssl_server_credentials',

@@ -115,25 +115,29 @@ def _instrumented_client_server_pair(channel_kwargs, server_handler):
                 server.stop(None)
 
 
-def _get_byte_counts(channel_kwargs, server_handler, message):
+def _get_byte_counts(channel_kwargs, multicallable_kwargs, server_handler,
+                     message):
     with _instrumented_client_server_pair(channel_kwargs,
                                           server_handler) as pipeline:
         client_channel, proxy, server = pipeline
         multi_callable = client_channel.unary_unary(_UNARY_UNARY)
-        response = multi_callable(message)
+        response = multi_callable(message, **multicallable_kwargs)
         if response != message:
             raise RuntimeError("Request '{}' != Response '{}'".format(
                 message, response))
         return proxy.get_byte_count()
 
 
-def _get_byte_differences(first_channel_kwargs, first_server_handler,
-                          second_channel_kwargs, second_server_handler,
+def _get_byte_differences(first_channel_kwargs, first_multicallable_kwargs,
+                          first_server_handler, second_channel_kwargs,
+                          second_multicallable_kwargs, second_server_handler,
                           message):
     first_bytes_sent, first_bytes_received = _get_byte_counts(
-        first_channel_kwargs, first_server_handler, message)
+        first_channel_kwargs, first_multicallable_kwargs, first_server_handler,
+        message)
     second_bytes_sent, second_bytes_received = _get_byte_counts(
-        second_channel_kwargs, second_server_handler, message)
+        second_channel_kwargs, second_multicallable_kwargs,
+        second_server_handler, message)
     return second_bytes_sent - first_bytes_sent, second_bytes_received - first_bytes_received
 
 
@@ -153,22 +157,53 @@ class CompressionTest(unittest.TestCase):
         pass
         # self._server.stop(None)
 
-    def testUnary(self):
+    def assertCompressed(self, bytes_difference):
+        self.assertLess(
+            bytes_difference,
+            0,
+            msg='Second stream was {} bytes bigger than first stream.'.format(
+                bytes_difference))
+
+    def assertNotCompressed(self, bytes_difference):
+        self.assertGreaterEqual(
+            bytes_difference,
+            0,
+            msg='Second stream was {} bytes smaller than first stream.'.format(
+                -1 * bytes_difference))
+
+    def testChannelCompressedUnary(self):
         uncompressed_channel_kwargs = {}
         compressed_channel_kwargs = {
             'compression': grpc.CompressionAlgorithm.deflate,
         }
         bytes_sent_difference, bytes_received_difference = _get_byte_differences(
-            uncompressed_channel_kwargs,
-            _GenericHandler(None), compressed_channel_kwargs,
+            uncompressed_channel_kwargs, {},
+            _GenericHandler(None), compressed_channel_kwargs, {},
             _GenericHandler(set_call_compression), _REQUEST)
         print("Bytes sent difference: {}".format(bytes_sent_difference))
         print("Bytes received difference: {}".format(bytes_received_difference))
-        self.assertLess(bytes_sent_difference, 0)
-        self.assertLess(bytes_received_difference, 0)
+        self.assertCompressed(bytes_sent_difference)
+        self.assertCompressed(bytes_received_difference)
 
     # TODO(rbellevi): Implement.
-    def testStreaming(self):
+    def testChannelCompressedStreaming(self):
+        pass
+
+    def testCallCompressedUnary(self):
+        uncompressed_channel_kwargs = {}
+        compressed_multicallable_kwargs = {
+            'compression': grpc.CompressionAlgorithm.deflate,
+        }
+        bytes_sent_difference, bytes_received_difference = _get_byte_differences(
+            uncompressed_channel_kwargs, {}, _GenericHandler(None),
+            uncompressed_channel_kwargs, compressed_multicallable_kwargs,
+            _GenericHandler(set_call_compression), _REQUEST)
+        print("Bytes sent difference: {}".format(bytes_sent_difference))
+        print("Bytes received difference: {}".format(bytes_received_difference))
+        self.assertCompressed(bytes_sent_difference)
+        self.assertCompressed(bytes_received_difference)
+
+    def testCallCompressedStreaming(self):
         pass
 
     def testDisableNextCompressionUnary(self):
@@ -177,13 +212,13 @@ class CompressionTest(unittest.TestCase):
             'compression': grpc.CompressionAlgorithm.deflate,
         }
         bytes_sent_difference, bytes_received_difference = _get_byte_differences(
-            uncompressed_channel_kwargs,
-            _GenericHandler(None), compressed_channel_kwargs,
+            uncompressed_channel_kwargs, {}, _GenericHandler(None),
+            compressed_channel_kwargs, {},
             _GenericHandler(disable_next_compression), _REQUEST)
         print("Bytes sent difference: {}".format(bytes_sent_difference))
         print("Bytes received difference: {}".format(bytes_received_difference))
-        self.assertLess(bytes_sent_difference, 0)
-        self.assertEqual(bytes_received_difference, 0)
+        self.assertCompressed(bytes_sent_difference)
+        self.assertNotCompressed(bytes_received_difference)
 
     # TODO(rbellevi): Implement.
     def testDisableNextCompressionStreaming(self):

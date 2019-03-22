@@ -500,6 +500,34 @@ def _determine_deadline(user_deadline):
         return min(parent_deadline, user_deadline)
 
 
+# TODO(rbellevi): Reconcile duplication with server.py.
+def _compression_algorithm_to_metadata_value(compression):
+    if compression == grpc.CompressionAlgorithm.none:
+        return 'identity'
+    elif compression == grpc.CompressionAlgorithm.deflate:
+        return 'deflate'
+    elif compression == grpc.CompressionAlgorithm.gzip:
+        return 'gzip'
+    else:
+        raise ValueError(
+            'Unknown compression algorithm "{}".'.format(compression))
+
+
+# TODO(rbellevi): Reconcile duplication with server.py.
+def _compression_algorithm_to_metadata(compression):
+    return (cygrpc.GRPC_COMPRESSION_REQUEST_ALGORITHM_MD_KEY,
+            _compression_algorithm_to_metadata_value(compression))
+
+
+def _augment_metadata(metadata, compression):
+    if not metadata and not compression:
+        return None
+    base_metadata = metadata if metadata else ()
+    compression_metadata = (
+        _compression_algorithm_to_metadata(compression),) if compression else ()
+    return base_metadata + compression_metadata
+
+
 class _UnaryUnaryMultiCallable(grpc.UnaryUnaryMultiCallable):
 
     # pylint: disable=too-many-arguments
@@ -512,17 +540,18 @@ class _UnaryUnaryMultiCallable(grpc.UnaryUnaryMultiCallable):
         self._response_deserializer = response_deserializer
         self._context = cygrpc.build_census_context()
 
-    def _prepare(self, request, timeout, metadata, wait_for_ready):
+    def _prepare(self, request, timeout, metadata, wait_for_ready, compression):
         deadline, serialized_request, rendezvous = _start_unary_request(
             request, timeout, self._request_serializer)
         initial_metadata_flags = _InitialMetadataFlags().with_wait_for_ready(
             wait_for_ready)
+        augmented_metadata = _augment_metadata(metadata, compression)
         if serialized_request is None:
             return None, None, None, rendezvous
         else:
             state = _RPCState(_UNARY_UNARY_INITIAL_DUE, None, None, None, None)
             operations = (
-                cygrpc.SendInitialMetadataOperation(metadata,
+                cygrpc.SendInitialMetadataOperation(augmented_metadata,
                                                     initial_metadata_flags),
                 cygrpc.SendMessageOperation(serialized_request, _EMPTY_FLAGS),
                 cygrpc.SendCloseFromClientOperation(_EMPTY_FLAGS),
@@ -532,10 +561,10 @@ class _UnaryUnaryMultiCallable(grpc.UnaryUnaryMultiCallable):
             )
             return state, operations, deadline, None
 
-    def _blocking(self, request, timeout, metadata, credentials,
-                  wait_for_ready):
+    def _blocking(self, request, timeout, metadata, credentials, wait_for_ready,
+                  compression):
         state, operations, deadline, rendezvous = self._prepare(
-            request, timeout, metadata, wait_for_ready)
+            request, timeout, metadata, wait_for_ready, compression)
         if state is None:
             raise rendezvous  # pylint: disable-msg=raising-bad-type
         else:
@@ -556,9 +585,10 @@ class _UnaryUnaryMultiCallable(grpc.UnaryUnaryMultiCallable):
                  timeout=None,
                  metadata=None,
                  credentials=None,
-                 wait_for_ready=None):
+                 wait_for_ready=None,
+                 compression=None):
         state, call, = self._blocking(request, timeout, metadata, credentials,
-                                      wait_for_ready)
+                                      wait_for_ready, compression)
         return _end_unary_response_blocking(state, call, False, None)
 
     def with_call(self,
@@ -566,9 +596,10 @@ class _UnaryUnaryMultiCallable(grpc.UnaryUnaryMultiCallable):
                   timeout=None,
                   metadata=None,
                   credentials=None,
-                  wait_for_ready=None):
+                  wait_for_ready=None,
+                  compression=None):
         state, call, = self._blocking(request, timeout, metadata, credentials,
-                                      wait_for_ready)
+                                      wait_for_ready, compression)
         return _end_unary_response_blocking(state, call, True, None)
 
     def future(self,
@@ -576,9 +607,10 @@ class _UnaryUnaryMultiCallable(grpc.UnaryUnaryMultiCallable):
                timeout=None,
                metadata=None,
                credentials=None,
-               wait_for_ready=None):
+               wait_for_ready=None,
+               compression=None):
         state, operations, deadline, rendezvous = self._prepare(
-            request, timeout, metadata, wait_for_ready)
+            request, timeout, metadata, wait_for_ready, compression)
         if state is None:
             raise rendezvous  # pylint: disable-msg=raising-bad-type
         else:

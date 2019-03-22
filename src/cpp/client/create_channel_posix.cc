@@ -19,12 +19,13 @@
 #include <grpc/grpc.h>
 #include <grpc/grpc_posix.h>
 #include <grpcpp/channel.h>
-#include <grpcpp/create_channel.h>
+#include <grpcpp/support/channel_arguments.h>
 #include <grpcpp/impl/grpc_library.h>
 
 #include "src/cpp/client/create_channel_internal.h"
 
 namespace grpc {
+class ChannelArguments;
 
 #ifdef GPR_SUPPORT_CHANNELS_FROM_FD
 

@@ -19,18 +19,17 @@
 #include <memory>
 
 #include <grpcpp/channel.h>
-#include <grpcpp/create_channel_impl.h>
-#include <grpcpp/impl/grpc_library.h>
+#include <grpcpp/create_channel.h>
 #include <grpcpp/security/credentials.h>
+#include <grpcpp/impl/grpc_library.h>
 #include <grpcpp/support/channel_arguments.h>
 
 #include "src/cpp/client/create_channel_internal.h"
 
-namespace grpc {
+using ::grpc::ChannelCredentials;
 
-class ChannelArguments;
-}
 namespace grpc_impl {
+
 std::shared_ptr<grpc::Channel> CreateChannel(
     const grpc::string& target,
     const std::shared_ptr<grpc::ChannelCredentials>& creds) {

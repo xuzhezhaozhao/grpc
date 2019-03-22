@@ -49,7 +49,7 @@ std::shared_ptr<grpc::Channel> CreateChannel(
 /// hold an object or is invalid, a lame channel (one on which all operations
 /// fail) is returned.
 /// \param args Options for channel creation.
-std::shared_ptr<grpc::Channel> CreateCustomChannel(
+std::shared_ptr<::grpc::Channel> CreateCustomChannel(
     const grpc::string& target,
     const std::shared_ptr<grpc::ChannelCredentials>& creds,
     const grpc::ChannelArguments& args);

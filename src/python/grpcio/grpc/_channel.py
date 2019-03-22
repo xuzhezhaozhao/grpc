@@ -983,9 +983,8 @@ def _unsubscribe(state, callback):
 
 
 def _augment_options(base_options, compression):
-    compression_option = (
-        (cygrpc.GRPC_COMPRESSION_CHANNEL_DEFAULT_ALGORITHM,
-         compression),) if compression else ()
+    compression_option = ((cygrpc.GRPC_COMPRESSION_CHANNEL_DEFAULT_ALGORITHM,
+                           compression),) if compression else ()
     return tuple(base_options) + compression_option + ((
         cygrpc.ChannelArgKey.primary_user_agent_string,
         _USER_AGENT,

@@ -223,9 +223,8 @@ def _compression_algorithm_to_metadata_value(compression):
             'Unknown compression algorithm "{}".'.format(compression))
 
 
-# TODO(rbellevi): Pull metadata key in from C layer.
 def compression_algorithm_to_metadata(compression):
-    return ('grpc-internal-encoding-request',
+    return (cygrpc.GRPC_COMPRESSION_REQUEST_ALGORITHM_MD_KEY,
             _compression_algorithm_to_metadata_value(compression))
 
 

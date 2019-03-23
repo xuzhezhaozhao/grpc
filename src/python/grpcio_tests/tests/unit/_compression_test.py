@@ -48,7 +48,8 @@ def make_handle_unary_stream(pre_response_callback):
 
     def _handle_unary_stream(request, servicer_context):
         if pre_response_callback:
-            print("Calling pre-response callback {} in unary_stream".format(pre_response_callback))
+            print("Calling pre-response callback {} in unary_stream".format(
+                pre_response_callback))
             pre_response_callback(request, servicer_context)
         for _ in range(test_constants.STREAM_LENGTH):
             yield request
@@ -93,7 +94,8 @@ class _MethodHandler(grpc.RpcMethodHandler):
         self.stream_stream = None
 
         if self.request_streaming and self.response_streaming:
-            self.stream_stream = make_handle_stream_stream(pre_response_callback)
+            self.stream_stream = make_handle_stream_stream(
+                pre_response_callback)
         elif not self.request_streaming and not self.response_streaming:
             self.unary_unary = make_handle_unary_unary(pre_response_callback)
         elif not self.request_streaming and self.response_streaming:
@@ -134,8 +136,8 @@ def _instrumented_client_server_pair(channel_kwargs, server_handler):
 
 
 # TODO(rbellevi): Enable other arities in this function.
-def _get_byte_counts(channel_kwargs, multicallable_kwargs, client_function, server_handler,
-                     message):
+def _get_byte_counts(channel_kwargs, multicallable_kwargs, client_function,
+                     server_handler, message):
     with _instrumented_client_server_pair(channel_kwargs,
                                           server_handler) as pipeline:
         client_channel, proxy, server = pipeline
@@ -143,13 +145,13 @@ def _get_byte_counts(channel_kwargs, multicallable_kwargs, client_function, serv
         return proxy.get_byte_count()
 
 
-def _get_byte_differences(client_function, first_channel_kwargs, first_multicallable_kwargs,
-                          first_server_handler, second_channel_kwargs,
-                          second_multicallable_kwargs, second_server_handler,
-                          message):
+def _get_byte_differences(client_function, first_channel_kwargs,
+                          first_multicallable_kwargs, first_server_handler,
+                          second_channel_kwargs, second_multicallable_kwargs,
+                          second_server_handler, message):
     first_bytes_sent, first_bytes_received = _get_byte_counts(
-        first_channel_kwargs, first_multicallable_kwargs, client_function, first_server_handler,
-        message)
+        first_channel_kwargs, first_multicallable_kwargs, client_function,
+        first_server_handler, message)
     second_bytes_sent, second_bytes_received = _get_byte_counts(
         second_channel_kwargs, second_multicallable_kwargs, client_function,
         second_server_handler, message)
@@ -208,8 +210,8 @@ class CompressionTest(unittest.TestCase):
         compressed_channel_kwargs = {
             'compression': grpc.compression.Deflate,
         }
-        bytes_sent_difference, bytes_received_difference = _get_byte_differences(_unary_unary_client,
-            uncompressed_channel_kwargs, {},
+        bytes_sent_difference, bytes_received_difference = _get_byte_differences(
+            _unary_unary_client, uncompressed_channel_kwargs, {},
             _GenericHandler(None), compressed_channel_kwargs, {},
             _GenericHandler(set_call_compression), _REQUEST)
         print("Bytes sent difference: {}".format(bytes_sent_difference))
@@ -226,9 +228,10 @@ class CompressionTest(unittest.TestCase):
         compressed_multicallable_kwargs = {
             'compression': grpc.compression.Deflate,
         }
-        bytes_sent_difference, bytes_received_difference = _get_byte_differences(_unary_unary_client,
-            uncompressed_channel_kwargs, {}, _GenericHandler(None),
-            uncompressed_channel_kwargs, compressed_multicallable_kwargs,
+        bytes_sent_difference, bytes_received_difference = _get_byte_differences(
+            _unary_unary_client, uncompressed_channel_kwargs, {},
+            _GenericHandler(None), uncompressed_channel_kwargs,
+            compressed_multicallable_kwargs,
             _GenericHandler(set_call_compression), _REQUEST)
         print("Bytes sent difference: {}".format(bytes_sent_difference))
         print("Bytes received difference: {}".format(bytes_received_difference))
@@ -240,9 +243,10 @@ class CompressionTest(unittest.TestCase):
         compressed_multicallable_kwargs = {
             'compression': grpc.compression.Deflate,
         }
-        bytes_sent_difference, bytes_received_difference = _get_byte_differences(_unary_stream_client,
-            uncompressed_channel_kwargs, {}, _GenericHandler(None),
-            uncompressed_channel_kwargs, compressed_multicallable_kwargs,
+        bytes_sent_difference, bytes_received_difference = _get_byte_differences(
+            _unary_stream_client, uncompressed_channel_kwargs, {},
+            _GenericHandler(None), uncompressed_channel_kwargs,
+            compressed_multicallable_kwargs,
             _GenericHandler(set_call_compression), _REQUEST)
         print("Bytes sent difference: {}".format(bytes_sent_difference))
         print("Bytes received difference: {}".format(bytes_received_difference))
@@ -254,9 +258,9 @@ class CompressionTest(unittest.TestCase):
         compressed_channel_kwargs = {
             'compression': grpc.compression.Deflate,
         }
-        bytes_sent_difference, bytes_received_difference = _get_byte_differences(_unary_unary_client,
-            uncompressed_channel_kwargs, {}, _GenericHandler(None),
-            compressed_channel_kwargs, {},
+        bytes_sent_difference, bytes_received_difference = _get_byte_differences(
+            _unary_unary_client, uncompressed_channel_kwargs, {},
+            _GenericHandler(None), compressed_channel_kwargs, {},
             _GenericHandler(disable_next_compression), _REQUEST)
         print("Bytes sent difference: {}".format(bytes_sent_difference))
         print("Bytes received difference: {}".format(bytes_received_difference))

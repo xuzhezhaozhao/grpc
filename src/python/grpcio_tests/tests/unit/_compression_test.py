@@ -30,10 +30,11 @@ from tests.unit.framework.common import test_constants
 from tests.unit import _tcp_proxy
 
 _UNARY_UNARY = '/test/UnaryUnary'
+_UNARY_STREAM = '/test/UnaryStream'
 _STREAM_STREAM = '/test/StreamStream'
 
 
-def make_handle_unary(pre_response_callback):
+def make_handle_unary_unary(pre_response_callback):
 
     def _handle_unary(request, servicer_context):
         if pre_response_callback:
@@ -43,7 +44,19 @@ def make_handle_unary(pre_response_callback):
     return _handle_unary
 
 
-def make_handle_stream(pre_response_callback):
+def make_handle_unary_stream(pre_response_callback):
+
+    def _handle_unary_stream(request, servicer_context):
+        if pre_response_callback:
+            print("Calling pre-response callback {} in unary_stream".format(pre_response_callback))
+            pre_response_callback(request, servicer_context)
+        for _ in range(test_constants.STREAM_LENGTH):
+            yield request
+
+    return _handle_unary_stream
+
+
+def make_handle_stream_stream(pre_response_callback):
 
     def _handle_stream(request_iterator, servicer_context):
         if pre_response_callback:
@@ -80,9 +93,11 @@ class _MethodHandler(grpc.RpcMethodHandler):
         self.stream_stream = None
 
         if self.request_streaming and self.response_streaming:
-            self.stream_stream = make_handle_stream(pre_response_callback)
+            self.stream_stream = make_handle_stream_stream(pre_response_callback)
         elif not self.request_streaming and not self.response_streaming:
-            self.unary_unary = make_handle_unary(pre_response_callback)
+            self.unary_unary = make_handle_unary_unary(pre_response_callback)
+        elif not self.request_streaming and self.response_streaming:
+            self.unary_stream = make_handle_unary_stream(pre_response_callback)
 
 
 class _GenericHandler(grpc.GenericRpcHandler):
@@ -93,6 +108,8 @@ class _GenericHandler(grpc.GenericRpcHandler):
     def service(self, handler_call_details):
         if handler_call_details.method == _UNARY_UNARY:
             return _MethodHandler(False, False, self._pre_response_callback)
+        if handler_call_details.method == _UNARY_STREAM:
+            return _MethodHandler(False, True, self._pre_response_callback)
         elif handler_call_details.method == _STREAM_STREAM:
             return _MethodHandler(True, True, self._pre_response_callback)
         else:
@@ -116,33 +133,47 @@ def _instrumented_client_server_pair(channel_kwargs, server_handler):
                 server.stop(None)
 
 
-def _get_byte_counts(channel_kwargs, multicallable_kwargs, server_handler,
+# TODO(rbellevi): Enable other arities in this function.
+def _get_byte_counts(channel_kwargs, multicallable_kwargs, client_function, server_handler,
                      message):
     with _instrumented_client_server_pair(channel_kwargs,
                                           server_handler) as pipeline:
         client_channel, proxy, server = pipeline
-        multi_callable = client_channel.unary_unary(_UNARY_UNARY)
-        response = multi_callable(message, **multicallable_kwargs)
-        if response != message:
-            raise RuntimeError("Request '{}' != Response '{}'".format(
-                message, response))
+        client_function(client_channel, multicallable_kwargs, message)
         return proxy.get_byte_count()
 
 
-def _get_byte_differences(first_channel_kwargs, first_multicallable_kwargs,
+def _get_byte_differences(client_function, first_channel_kwargs, first_multicallable_kwargs,
                           first_server_handler, second_channel_kwargs,
                           second_multicallable_kwargs, second_server_handler,
                           message):
     first_bytes_sent, first_bytes_received = _get_byte_counts(
-        first_channel_kwargs, first_multicallable_kwargs, first_server_handler,
+        first_channel_kwargs, first_multicallable_kwargs, client_function, first_server_handler,
         message)
     second_bytes_sent, second_bytes_received = _get_byte_counts(
-        second_channel_kwargs, second_multicallable_kwargs,
+        second_channel_kwargs, second_multicallable_kwargs, client_function,
         second_server_handler, message)
     return second_bytes_sent - first_bytes_sent, second_bytes_received - first_bytes_received
 
 
 _REQUEST = b'\x00' * 100
+
+
+def _unary_unary_client(channel, multicallable_kwargs, message):
+    multi_callable = channel.unary_unary(_UNARY_UNARY)
+    response = multi_callable(message, **multicallable_kwargs)
+    if response != message:
+        raise RuntimeError("Request '{}' != Response '{}'".format(
+            message, response))
+
+
+def _unary_stream_client(channel, multicallable_kwargs, message):
+    multi_callable = channel.unary_stream(_UNARY_STREAM)
+    response_iterator = multi_callable(message, **multicallable_kwargs)
+    for response in response_iterator:
+        if response != message:
+            raise RuntimeError("Request '{}' != Response '{}'".format(
+                message, response))
 
 
 class CompressionTest(unittest.TestCase):
@@ -172,12 +203,12 @@ class CompressionTest(unittest.TestCase):
             msg='Second stream was {} bytes smaller than first stream.'.format(
                 -1 * bytes_difference))
 
-    def testChannelCompressedUnary(self):
+    def testChannelCompressedUnaryUnary(self):
         uncompressed_channel_kwargs = {}
         compressed_channel_kwargs = {
             'compression': grpc.compression.Deflate,
         }
-        bytes_sent_difference, bytes_received_difference = _get_byte_differences(
+        bytes_sent_difference, bytes_received_difference = _get_byte_differences(_unary_unary_client,
             uncompressed_channel_kwargs, {},
             _GenericHandler(None), compressed_channel_kwargs, {},
             _GenericHandler(set_call_compression), _REQUEST)
@@ -190,12 +221,12 @@ class CompressionTest(unittest.TestCase):
     def testChannelCompressedStreaming(self):
         pass
 
-    def testCallCompressedUnary(self):
+    def testCallCompressedUnaryUnary(self):
         uncompressed_channel_kwargs = {}
         compressed_multicallable_kwargs = {
             'compression': grpc.compression.Deflate,
         }
-        bytes_sent_difference, bytes_received_difference = _get_byte_differences(
+        bytes_sent_difference, bytes_received_difference = _get_byte_differences(_unary_unary_client,
             uncompressed_channel_kwargs, {}, _GenericHandler(None),
             uncompressed_channel_kwargs, compressed_multicallable_kwargs,
             _GenericHandler(set_call_compression), _REQUEST)
@@ -204,15 +235,26 @@ class CompressionTest(unittest.TestCase):
         self.assertCompressed(bytes_sent_difference)
         self.assertCompressed(bytes_received_difference)
 
-    def testCallCompressedStreaming(self):
-        pass
+    def testCallCompressedUnaryStream(self):
+        uncompressed_channel_kwargs = {}
+        compressed_multicallable_kwargs = {
+            'compression': grpc.compression.Deflate,
+        }
+        bytes_sent_difference, bytes_received_difference = _get_byte_differences(_unary_stream_client,
+            uncompressed_channel_kwargs, {}, _GenericHandler(None),
+            uncompressed_channel_kwargs, compressed_multicallable_kwargs,
+            _GenericHandler(set_call_compression), _REQUEST)
+        print("Bytes sent difference: {}".format(bytes_sent_difference))
+        print("Bytes received difference: {}".format(bytes_received_difference))
+        self.assertCompressed(bytes_sent_difference)
+        self.assertCompressed(bytes_received_difference)
 
-    def testDisableNextCompressionUnary(self):
+    def testDisableNextCompressionUnaryUnary(self):
         uncompressed_channel_kwargs = {}
         compressed_channel_kwargs = {
             'compression': grpc.compression.Deflate,
         }
-        bytes_sent_difference, bytes_received_difference = _get_byte_differences(
+        bytes_sent_difference, bytes_received_difference = _get_byte_differences(_unary_unary_client,
             uncompressed_channel_kwargs, {}, _GenericHandler(None),
             compressed_channel_kwargs, {},
             _GenericHandler(disable_next_compression), _REQUEST)

@@ -402,10 +402,10 @@ def _unary_request(rpc_event, state, request_deserializer):
     return unary_request
 
 
-# TODO(rbellevi): Take disable_next_compression into account.
 def _maybe_request_compression(state, rpc_event):
     with state.condition:
         if state.initial_metadata_allowed and state.compression_algorithm:
+            print("Adding compression metadata")
             compression_metadata = (
                 grpc.compression._compression_algorithm_to_metadata(
                     state.compression_algorithm),)
@@ -423,6 +423,7 @@ def _call_behavior(rpc_event,
                    argument,
                    request_deserializer,
                    send_response_callback=None):
+    print("Enter call_behavior!")
     from grpc import _create_servicer_context
     with _create_servicer_context(rpc_event, state,
                                   request_deserializer) as context:
@@ -433,6 +434,7 @@ def _call_behavior(rpc_event,
                                                 send_response_callback)
             else:
                 response_or_iterator = behavior(argument, context)
+            print("Maybe request compression")
             _maybe_request_compression(state, rpc_event)
             return response_or_iterator, True
         except Exception as exception:  # pylint: disable=broad-except
